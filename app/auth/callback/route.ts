@@ -6,7 +6,7 @@ export async function GET(request: Request) {
   const { searchParams, origin } = new URL(request.url);
   const code = searchParams.get("code");
   // "next" parameter က login ပြီးရင် ဘယ် page ကို သွားမလဲ သတ်မှတ်တယ်
-  const next = searchParams.get("next") ?? "/protected";
+  const next = searchParams.get("next") ?? "/dashboard";
 
   if (code) {
     const supabase = await createClient();

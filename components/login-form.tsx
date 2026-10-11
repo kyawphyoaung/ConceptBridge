@@ -2,6 +2,7 @@
 
 import { cn } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
+import { markCurrentUserAsGuest } from "@/lib/queries/profiles";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -13,8 +14,8 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useEffect, useState } from "react";
 
 export function LoginForm({
   className,
@@ -25,23 +26,32 @@ export function LoginForm({
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
+  const [isGuestLoading, setIsGuestLoading] = useState(false);
   const router = useRouter();
+  const searchParams = useSearchParams();
 
-  const handleLogin = async (e: React.SubmitEvent<HTMLFormElement>) => {
+  useEffect(() => {
+    const deactivated = searchParams.get("error");
+    if (deactivated === "deactivated") {
+      setError("Your account has been deactivated. Contact an administrator.");
+    }
+  }, [searchParams]);
+
+  const handleLogin = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const supabase = createClient();
     setIsLoading(true);
     setError(null);
 
     try {
-      const { error } = await supabase.auth.signInWithPassword({
+      const { error: signInError } = await supabase.auth.signInWithPassword({
         email,
         password,
       });
-      if (error) throw error;
-      router.push("/protected");
-    } catch (error: unknown) {
-      setError(error instanceof Error ? error.message : "An error occurred");
+      if (signInError) throw signInError;
+      router.push("/dashboard");
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "An error occurred");
     } finally {
       setIsLoading(false);
     }
@@ -53,19 +63,67 @@ export function LoginForm({
     setError(null);
 
     try {
-      const { error } = await supabase.auth.signInWithOAuth({
+      const { error: oauthError } = await supabase.auth.signInWithOAuth({
         provider: "google",
         options: {
-          redirectTo: `${window.location.origin}/auth/callback`,
+          redirectTo: `${window.location.origin}/auth/callback?next=/dashboard`,
         },
       });
-      if (error) throw error;
-      // Browser က Google ဆီ redirect ဖြစ်သွားပါမယ်
-    } catch (error: unknown) {
-      setError(error instanceof Error ? error.message : "An error occurred");
+      if (oauthError) throw oauthError;
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "An error occurred");
       setIsGoogleLoading(false);
     }
   };
+
+  /**
+   * Guest mode via Supabase Anonymous Sign-In.
+   * IMPORTANT: Enable Anonymous Sign-Ins in the Supabase Dashboard:
+   * Authentication → Providers → Anonymous → Enable.
+   */
+  const handleGuestLogin = async () => {
+    const supabase = createClient();
+    setIsGuestLoading(true);
+    setError(null);
+
+    try {
+      const { error: anonError } = await supabase.auth.signInAnonymously({
+        options: {
+          data: {
+            is_guest: true,
+            full_name: "Guest",
+          },
+        },
+      });
+
+      if (anonError) {
+        console.error("Anonymous sign-in error:", anonError);
+        setError(
+          "Guest sign-in is not available right now. Please sign up instead.",
+        );
+        setIsGuestLoading(false);
+        return;
+      }
+
+      await markCurrentUserAsGuest();
+      router.push("/dashboard");
+    } catch (err: unknown) {
+      console.error("Anonymous sign-in error:", err);
+      setError(
+        "Guest sign-in is not available right now. Please sign up instead.",
+      );
+      setIsGuestLoading(false);
+    }
+  };
+
+  // Auto-start guest flow when landing from "Try as guest"
+  useEffect(() => {
+    if (searchParams.get("guest") === "1") {
+      void handleGuestLogin();
+    }
+    // Intentionally once on mount for ?guest=1 deep link
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <div className={cn("flex flex-col gap-6", className)} {...props}>
@@ -77,14 +135,18 @@ export function LoginForm({
           </CardDescription>
         </CardHeader>
         <CardContent>
-          {/* Google Login Button */}
           <button
             type="button"
             onClick={handleGoogleLogin}
-            disabled={isGoogleLoading}
-            className="w-full flex items-center justify-center gap-3 rounded-md border border-input bg-background px-4 py-2 text-sm font-medium hover:bg-accent hover:text-accent-foreground disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            disabled={isGoogleLoading || isGuestLoading}
+            className="flex h-11 min-h-[44px] w-full items-center justify-center gap-3 rounded-md border border-input bg-background px-4 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground disabled:cursor-not-allowed disabled:opacity-50"
           >
-            <svg className="w-5 h-5" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+            <svg
+              className="h-5 w-5"
+              viewBox="0 0 24 24"
+              xmlns="http://www.w3.org/2000/svg"
+              aria-hidden
+            >
               <path
                 d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
                 fill="#4285F4"
@@ -105,7 +167,6 @@ export function LoginForm({
             {isGoogleLoading ? "Redirecting..." : "Continue with Google"}
           </button>
 
-          {/* Divider */}
           <div className="relative my-4">
             <div className="absolute inset-0 flex items-center">
               <span className="w-full border-t" />
@@ -128,6 +189,7 @@ export function LoginForm({
                   required
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
+                  className="h-11 min-h-[44px]"
                 />
               </div>
               <div className="grid gap-2">
@@ -146,10 +208,15 @@ export function LoginForm({
                   required
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
+                  className="h-11 min-h-[44px]"
                 />
               </div>
               {error && <p className="text-sm text-red-500">{error}</p>}
-              <Button type="submit" className="w-full" disabled={isLoading}>
+              <Button
+                type="submit"
+                className="h-11 min-h-[44px] w-full"
+                disabled={isLoading || isGuestLoading}
+              >
                 {isLoading ? "Logging in..." : "Login"}
               </Button>
             </div>
@@ -163,6 +230,28 @@ export function LoginForm({
               </Link>
             </div>
           </form>
+
+          <div className="relative my-4">
+            <div className="absolute inset-0 flex items-center">
+              <span className="w-full border-t" />
+            </div>
+            <div className="relative flex justify-center text-xs uppercase">
+              <span className="bg-card px-2 text-muted-foreground">Or</span>
+            </div>
+          </div>
+
+          <Button
+            type="button"
+            variant="ghost"
+            className="h-11 min-h-[44px] w-full text-muted-foreground"
+            disabled={isGuestLoading || isLoading}
+            onClick={() => void handleGuestLogin()}
+          >
+            {isGuestLoading ? "Starting guest session…" : "Continue as guest →"}
+          </Button>
+          <p className="mt-2 text-center text-xs text-muted-foreground">
+            Guest progress is not saved. Sign in anytime to keep your streak.
+          </p>
         </CardContent>
       </Card>
     </div>

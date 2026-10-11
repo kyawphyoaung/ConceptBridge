@@ -1,3 +1,4 @@
+import { Suspense } from 'react'
 import type { Metadata, Viewport } from 'next'
 import { Geist } from 'next/font/google'
 import { AuthProvider } from '@/components/providers/AuthProvider'
@@ -5,6 +6,9 @@ import { SoundProvider } from '@/components/providers/SoundProvider'
 import { ThemeProvider } from '@/components/providers/ThemeProvider'
 import { Toaster } from '@/components/ui/sonner'
 import './globals.css'
+
+/** Allow runtime data (auth/cookies) under Cache Components. */
+export const instant = false
 
 const defaultUrl = process.env.VERCEL_URL
   ? `https://${process.env.VERCEL_URL}`
@@ -56,17 +60,17 @@ export default function RootLayout({
       <head>
         <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
       </head>
-      <body
-        className={`${geistSans.className} min-h-dvh antialiased`}
-      >
-        <ThemeProvider>
-          <SoundProvider>
-            <AuthProvider>
-              {children}
-              <Toaster richColors closeButton position="top-center" />
-            </AuthProvider>
-          </SoundProvider>
-        </ThemeProvider>
+      <body className={`${geistSans.className} min-h-dvh antialiased`}>
+        <Suspense fallback={null}>
+          <ThemeProvider>
+            <SoundProvider>
+              <AuthProvider>
+                {children}
+                <Toaster richColors closeButton position="top-center" />
+              </AuthProvider>
+            </SoundProvider>
+          </ThemeProvider>
+        </Suspense>
       </body>
     </html>
   )

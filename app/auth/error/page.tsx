@@ -2,6 +2,8 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import Link from "next/link";
 
+export const instant = false
+
 export default async function Page({
   searchParams,
 }: {

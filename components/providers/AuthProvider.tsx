@@ -28,6 +28,9 @@ const AuthContext = createContext<AuthContextValue | null>(null)
  * Tracks Supabase auth session + linked profile.
  * Guest users are identified via `profile.is_guest === true`.
  *
+ * Auth reads (`getUser`) run only inside `useEffect` / event handlers —
+ * never during render — so static prerender stays clean.
+ *
  * @example
  * <AuthProvider>{children}</AuthProvider>
  */
@@ -69,25 +72,33 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setProfile(null)
   }, [])
 
+  // Client-only: never call supabase.auth during render/prerender.
   useEffect(() => {
     const supabase = createClient()
     let mounted = true
 
     const init = async () => {
       setLoading(true)
-      const {
-        data: { user: nextUser },
-      } = await supabase.auth.getUser()
+      try {
+        const {
+          data: { user: nextUser },
+        } = await supabase.auth.getUser()
 
-      if (!mounted) return
-      setUser(nextUser)
+        if (!mounted) return
+        setUser(nextUser)
 
-      if (nextUser) {
-        await loadProfile(nextUser.id)
-      } else {
+        if (nextUser) {
+          await loadProfile(nextUser.id)
+        } else {
+          setProfile(null)
+        }
+      } catch {
+        if (!mounted) return
+        setUser(null)
         setProfile(null)
+      } finally {
+        if (mounted) setLoading(false)
       }
-      if (mounted) setLoading(false)
     }
 
     void init()
